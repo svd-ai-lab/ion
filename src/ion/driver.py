@@ -56,14 +56,18 @@ class ConnectionInfo:
     version: str | None
     status: str  # "ok", "not_installed", "error"
     message: str = ""
+    solver_version: str | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "solver": self.solver,
             "version": self.version,
             "status": self.status,
             "message": self.message,
         }
+        if self.solver_version:
+            d["solver_version"] = self.solver_version
+        return d
 
 
 @runtime_checkable

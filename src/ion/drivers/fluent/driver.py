@@ -12,6 +12,23 @@ from ion.drivers.fluent.queries import handle_query
 from ion.drivers.fluent.runtime import PyFluentRuntime
 
 
+_VERSION_MAP = {
+    "252": "2025 R2", "251": "2025 R1",
+    "242": "2024 R2", "241": "2024 R1",
+    "232": "2023 R2", "231": "2023 R1",
+}
+
+
+def _parse_fluent_version_from_path(path: str) -> str | None:
+    """Extract Fluent version string from an install path like '.../v252'."""
+    m = re.search(r"v(\d{3})", path)
+    if not m:
+        return None
+    code = m.group(1)
+    label = _VERSION_MAP.get(code, f"v{code}")
+    return f"{label} (v{code})"
+
+
 class PyFluentDriver:
     """Ion driver for Ansys PyFluent (2024 R1+).
 
@@ -65,11 +82,16 @@ class PyFluentDriver:
             import ansys.fluent.core as pyfluent  # noqa: PLC0415
 
             version = getattr(pyfluent, "__version__", "unknown")
+            solver_version = self._detect_fluent_version()
+            msg = f"ansys-fluent-core {version} available"
+            if solver_version:
+                msg += f", Fluent {solver_version}"
             return ConnectionInfo(
                 solver="fluent",
                 version=version,
                 status="ok",
-                message=f"ansys-fluent-core {version} available",
+                message=msg,
+                solver_version=solver_version,
             )
         except ImportError:
             return ConnectionInfo(
@@ -78,6 +100,36 @@ class PyFluentDriver:
                 status="not_installed",
                 message="ansys-fluent-core is not installed",
             )
+
+    @staticmethod
+    def _detect_fluent_version() -> str | None:
+        """Detect installed Fluent version from environment variables."""
+        # Check PYFLUENT_FLUENT_ROOT first (explicit override)
+        fluent_root = os.environ.get("PYFLUENT_FLUENT_ROOT", "")
+        if fluent_root:
+            return _parse_fluent_version_from_path(fluent_root)
+
+        # Scan AWP_ROOT* env vars (standard Ansys installation)
+        awp_vars = sorted(
+            ((k, v) for k, v in os.environ.items() if k.startswith("AWP_ROOT")),
+            reverse=True,
+        )
+        if awp_vars:
+            _, path = awp_vars[0]  # latest version
+            return _parse_fluent_version_from_path(path)
+
+        # Try common install paths
+        for base in [
+            Path("C:/Program Files/ANSYS Inc"),
+            Path("/usr/ansys_inc"),
+            Path("/ansys_inc"),
+        ]:
+            if base.is_dir():
+                versions = sorted(base.glob("v*"), reverse=True)
+                if versions:
+                    return _parse_fluent_version_from_path(str(versions[0]))
+
+        return None
 
     def parse_output(self, stdout: str) -> dict:
         """Extract structured results from a pyfluent script's stdout.
