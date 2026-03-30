@@ -1,0 +1,220 @@
+"""ion serve — HTTP server that holds a live simulation session.
+
+Like `ollama serve`: start once, then use `ion connect/exec/inspect/disconnect`.
+
+    ion serve                          # local (127.0.0.1:7600)
+    ion serve --host 0.0.0.0           # expose on network (Tailscale)
+    ion serve --host 0.0.0.0 --port 8000
+
+Endpoints:
+    POST /connect     {solver, mode, ui_mode, processors}
+    POST /exec        {code, label}
+    GET  /inspect/<name>
+    GET  /ps
+    POST /disconnect
+"""
+from __future__ import annotations
+
+import io
+import time
+import traceback
+import uuid
+from contextlib import redirect_stdout, redirect_stderr
+from dataclasses import dataclass, field
+from typing import Any
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI(title="ion", version="0.1.0")
+
+
+# ── Request models ───────────────────────────────────────────────────────────
+
+class ConnectRequest(BaseModel):
+    solver: str = "fluent"
+    mode: str = "meshing"
+    ui_mode: str = "gui"
+    processors: int = 2
+
+
+class ExecRequest(BaseModel):
+    code: str
+    label: str = "snippet"
+
+
+# ── Session state ────────────────────────────────────────────────────────────
+
+@dataclass
+class SessionState:
+    session_id: str | None = None
+    mode: str | None = None
+    ui_mode: str | None = None
+    connected_at: float | None = None
+    run_count: int = 0
+    session: Any = None
+    runs: list[dict] = field(default_factory=list)
+
+
+_state = SessionState()
+
+
+# ── Snippet execution ────────────────────────────────────────────────────────
+
+def _execute_snippet(code: str, label: str) -> dict:
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    namespace: dict[str, Any] = {
+        "session": _state.session,
+        "_result": None,
+    }
+    if _state.mode == "meshing":
+        namespace["meshing"] = _state.session
+    else:
+        namespace["solver"] = _state.session
+
+    started = time.time()
+    ok = True
+    error = None
+
+    try:
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exec(code, namespace)  # noqa: S102
+    except Exception:
+        ok = False
+        error = traceback.format_exc()
+
+    elapsed = round(time.time() - started, 4)
+
+    run_record = {
+        "run_id": str(uuid.uuid4()),
+        "session_id": _state.session_id,
+        "label": label,
+        "code": code,
+        "ok": ok,
+        "stdout": stdout_buf.getvalue(),
+        "stderr": stderr_buf.getvalue(),
+        "error": error,
+        "result": namespace.get("_result"),
+        "elapsed_s": elapsed,
+        "started_at": started,
+    }
+    _state.runs.append(run_record)
+    _state.run_count += 1
+    return run_record
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+@app.post("/connect")
+def connect(req: ConnectRequest):
+    if _state.session is not None:
+        raise HTTPException(400, "session already active — POST /disconnect first")
+
+    if req.solver != "fluent":
+        raise HTTPException(400, f"unsupported solver: {req.solver}")
+
+    try:
+        import ansys.fluent.core as pyfluent
+        session = pyfluent.launch_fluent(
+            mode=req.mode,
+            ui_mode=req.ui_mode,
+            processor_count=req.processors,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"failed to launch Fluent: {e}")
+
+    _state.session_id = str(uuid.uuid4())
+    _state.mode = req.mode
+    _state.ui_mode = req.ui_mode
+    _state.connected_at = time.time()
+    _state.run_count = 0
+    _state.session = session
+    _state.runs = []
+
+    return {
+        "ok": True,
+        "data": {
+            "session_id": _state.session_id,
+            "mode": _state.mode,
+            "ui_mode": _state.ui_mode,
+            "connected_at": _state.connected_at,
+            "run_count": 0,
+        },
+    }
+
+
+@app.post("/exec")
+def exec_snippet(req: ExecRequest):
+    if _state.session is None:
+        raise HTTPException(400, "no active session — POST /connect first")
+    record = _execute_snippet(req.code, req.label)
+    return {"ok": record["ok"], "data": record}
+
+
+@app.get("/inspect/{name}")
+def inspect(name: str):
+    if _state.session is None:
+        raise HTTPException(400, "no active session")
+
+    if name == "session.summary":
+        return {
+            "ok": True,
+            "data": {
+                "session_id": _state.session_id,
+                "mode": _state.mode,
+                "ui_mode": _state.ui_mode,
+                "connected_at": _state.connected_at,
+                "run_count": _state.run_count,
+                "connected": True,
+            },
+        }
+    elif name == "last.result":
+        if not _state.runs:
+            return {"ok": True, "data": {"has_last_run": False}}
+        last = _state.runs[-1]
+        return {
+            "ok": True,
+            "data": {
+                "has_last_run": True,
+                **{k: v for k, v in last.items() if k != "code"},
+            },
+        }
+    else:
+        raise HTTPException(404, f"unknown inspect target: {name}")
+
+
+@app.get("/ps")
+def ps():
+    if _state.session is None:
+        return {"connected": False}
+    return {
+        "connected": True,
+        "session_id": _state.session_id,
+        "mode": _state.mode,
+        "ui_mode": _state.ui_mode,
+        "connected_at": _state.connected_at,
+        "run_count": _state.run_count,
+    }
+
+
+@app.post("/disconnect")
+def disconnect():
+    if _state.session is None:
+        raise HTTPException(400, "no active session")
+
+    sid = _state.session_id
+    try:
+        _state.session.exit()
+    except Exception:
+        pass
+
+    _state.session = None
+    _state.session_id = None
+    _state.mode = None
+    _state.ui_mode = None
+    _state.connected_at = None
+    _state.run_count = 0
+    _state.runs = []
+
+    return {"ok": True, "data": {"session_id": sid, "disconnected": True}}
