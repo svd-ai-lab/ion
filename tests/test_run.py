@@ -1,6 +1,7 @@
 """Tests for ion run — Phase 2."""
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 
@@ -37,6 +38,21 @@ class TestRunner:
         result = execute_script(FIXTURES / "mock_solver.py")
         # Should be valid ISO format
         datetime.fromisoformat(result.timestamp)
+
+    def test_delegates_to_driver_run_file(self):
+        fake = SimpleNamespace(
+            run_file=lambda script: SimpleNamespace(
+                exit_code=0,
+                stdout="delegated",
+                stderr="",
+                duration_s=0.1,
+                script=str(script),
+                solver="matlab",
+                timestamp="2026-01-01T00:00:00+00:00",
+            )
+        )
+        result = execute_script(FIXTURES / "matlab_ok.m", solver="matlab", driver=fake)
+        assert result.stdout == "delegated"
 
 
 class TestRunCLI:

@@ -118,11 +118,14 @@ def lint(ctx, script):
 def run(ctx, script, solver):
     """Execute a simulation script in a subprocess (one-shot)."""
     driver = get_driver(solver)
-    result = execute_script(Path(script), solver=solver)
+    if driver is None:
+        click.echo(f"[ion] error: no driver for '{solver}'", err=True)
+        sys.exit(1)
+
+    result = execute_script(Path(script), solver=solver, driver=driver)
 
     parsed = {}
-    if driver is not None:
-        parsed = driver.parse_output(result.stdout)
+    parsed = driver.parse_output(result.stdout)
 
     store = _get_store()
     run_id = store.save(result, parsed_output=parsed)

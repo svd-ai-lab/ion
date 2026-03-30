@@ -4,10 +4,12 @@ from __future__ import annotations
 from ion.driver import DriverProtocol
 from ion.drivers.pybamm import PyBaMMLDriver
 from ion.drivers.fluent import PyFluentDriver
+from ion.drivers.matlab import MatlabDriver
 
 DRIVERS: list[DriverProtocol] = [
     PyBaMMLDriver(),
     PyFluentDriver(),
+    MatlabDriver(),
 ]
 
 

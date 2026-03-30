@@ -4,9 +4,11 @@ from __future__ import annotations
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 
 from ion.driver import ConnectionInfo, Diagnostic, LintResult
+from ion.runner import run_subprocess
 
 
 class PyBaMMLDriver:
@@ -104,3 +106,11 @@ class PyBaMMLDriver:
                 except json.JSONDecodeError:
                     continue
         return {}
+
+    def run_file(self, script: Path):
+        """Execute a PyBaMM Python script."""
+        return run_subprocess(
+            [sys.executable, str(script)],
+            script=script,
+            solver=self.name,
+        )

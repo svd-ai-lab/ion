@@ -6,10 +6,12 @@ import os
 import re
 import uuid
 from pathlib import Path
+import sys
 
 from ion.driver import ConnectionInfo, Diagnostic, LintResult
 from ion.drivers.fluent.queries import handle_query
 from ion.drivers.fluent.runtime import PyFluentRuntime
+from ion.runner import run_subprocess
 
 
 _VERSION_MAP = {
@@ -148,6 +150,14 @@ class PyFluentDriver:
                 except json.JSONDecodeError:
                     continue
         return {}
+
+    def run_file(self, script: Path):
+        """Execute a one-shot PyFluent Python script."""
+        return run_subprocess(
+            [sys.executable, str(script)],
+            script=script,
+            solver=self.name,
+        )
 
     # ── Extended PyFluent API ────────────────────────────────────────────────────
 
