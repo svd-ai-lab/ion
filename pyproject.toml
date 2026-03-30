@@ -10,12 +10,10 @@ dependencies = [
     "httpx>=0.28",
     "fastapi>=0.115",
     "uvicorn>=0.34",
+    "ansys-fluent-core>=0.20",
 ]
 
 [project.optional-dependencies]
-fluent = ["ansys-fluent-core>=0.20"]
-pybamm = ["pybamm>=24.1"]
-all = ["ion-cli[fluent,pybamm]"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.scripts]
