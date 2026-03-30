@@ -1,6 +1,6 @@
 # ion
 
-> The simulation runtime for AI agents.
+> The physics simulation runtime for AI agents.
 
 **[English](#ion)** | [Deutsch](docs/README.de.md) | [日本語](docs/README.ja.md) | [中文](docs/README.zh.md)
 

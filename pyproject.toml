@@ -1,7 +1,7 @@
 [project]
 name = "ion-cli"
 version = "0.1.0"
-description = "The simulation runtime for AI agents"
+description = "The physics simulation runtime for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
