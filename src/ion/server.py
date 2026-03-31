@@ -132,9 +132,9 @@ def connect(req: ConnectRequest):
         raise HTTPException(400, f"unknown solver: {req.solver}")
 
     try:
-        if req.solver == "matlab":
+        if req.solver in ("matlab", "comsol"):
             info = driver.launch(ui_mode=req.ui_mode)
-            session = driver  # MATLAB driver holds its own engine
+            session = driver  # driver holds its own session
         else:
             # Fluent path
             import ansys.fluent.core as pyfluent
@@ -175,11 +175,9 @@ def exec_snippet(req: ExecRequest):
     if _state.session is None:
         raise HTTPException(400, "no active session — POST /connect first")
 
-    if _state.solver == "matlab":
+    if _state.solver in ("matlab", "comsol"):
         result = _state.driver.run(req.code, req.label)
-        result["run_id"] = str(uuid.uuid4())
         result["session_id"] = _state.session_id
-        result["elapsed_s"] = 0  # TODO: time it
         result["started_at"] = time.time()
         _state.runs.append(result)
         _state.run_count += 1
@@ -271,7 +269,7 @@ def disconnect():
 
     sid = _state.session_id
     try:
-        if _state.solver == "matlab" and _state.driver:
+        if _state.solver in ("matlab", "comsol") and _state.driver:
             _state.driver.disconnect()
         else:
             _state.session.exit()

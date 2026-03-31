@@ -1,0 +1,280 @@
+"""COMSOL Multiphysics driver for ion.
+
+Phase 1: one-shot script execution via subprocess.
+Phase 2: persistent GUI sessions via JPype + COMSOL Java API.
+
+The JPype bridge loads COMSOL's bundled JRE and plugin jars, then calls
+ModelUtil.initStandalone(true) for GUI or (false) for headless.
+"""
+from __future__ import annotations
+
+import ast
+import glob
+import io
+import json
+import os
+import re
+import shutil
+import time
+import traceback
+import uuid
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+
+from ion.driver import ConnectionInfo, Diagnostic, LintResult
+
+# Default COMSOL install path (Windows)
+_DEFAULT_COMSOL_ROOT = r"C:\Program Files\COMSOL\COMSOL64\Multiphysics"
+
+
+class ComsolDriver:
+    @property
+    def name(self) -> str:
+        return "comsol"
+
+    def detect(self, script: Path) -> bool:
+        """Check if script imports mph (Python COMSOL interface)."""
+        text = script.read_text()
+        return bool(re.search(r"^\s*(import mph|from mph\b)", text, re.MULTILINE))
+
+    def lint(self, script: Path) -> LintResult:
+        """Validate a COMSOL/MPh script."""
+        text = script.read_text()
+        diagnostics: list[Diagnostic] = []
+
+        has_import = bool(
+            re.search(r"^\s*(import mph|from mph\b)", text, re.MULTILINE)
+        )
+        if not has_import:
+            if "mph" in text:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        message="Script uses mph but does not import it",
+                    )
+                )
+            else:
+                diagnostics.append(
+                    Diagnostic(level="error", message="No mph import found")
+                )
+
+        try:
+            ast.parse(text)
+        except SyntaxError as e:
+            diagnostics.append(
+                Diagnostic(level="error", message=f"Syntax error: {e}", line=e.lineno)
+            )
+
+        if has_import:
+            try:
+                tree = ast.parse(text)
+                # Check for Client() call — needed to connect to COMSOL server
+                has_client = any(
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "Client"
+                    for node in ast.walk(tree)
+                )
+                # Also check for mph.start() which is the convenience launcher
+                has_start = any(
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "start"
+                    for node in ast.walk(tree)
+                )
+                if not has_client and not has_start:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="warning",
+                            message="No mph.Client() or mph.start() call found "
+                            "— script may not connect to COMSOL server",
+                        )
+                    )
+            except SyntaxError:
+                pass
+
+        ok = not any(d.level == "error" for d in diagnostics)
+        return LintResult(ok=ok, diagnostics=diagnostics)
+
+    def connect(self) -> ConnectionInfo:
+        """Check if mph is importable and COMSOL is available."""
+        try:
+            import mph
+
+            version = mph.__version__
+        except ImportError:
+            return ConnectionInfo(
+                solver="comsol",
+                version=None,
+                status="not_installed",
+                message="mph is not installed in the current environment",
+            )
+
+        # Check if COMSOL executable is on PATH or discoverable by mph
+        comsol_bin = shutil.which("comsol")
+        if comsol_bin:
+            return ConnectionInfo(
+                solver="comsol",
+                version=version,
+                status="ok",
+                message=f"mph {version} available, COMSOL found at {comsol_bin}",
+            )
+
+        # mph can still discover COMSOL via its own logic
+        try:
+            backends = mph.discovery.backend()
+            if backends:
+                return ConnectionInfo(
+                    solver="comsol",
+                    version=version,
+                    status="ok",
+                    message=f"mph {version} available, COMSOL discovered by mph",
+                )
+        except Exception:
+            pass
+
+        return ConnectionInfo(
+            solver="comsol",
+            version=version,
+            status="not_installed",
+            message=f"mph {version} installed but COMSOL not found on this machine",
+        )
+
+    def parse_output(self, stdout: str) -> dict:
+        """Parse structured JSON output from a COMSOL/MPh script."""
+        for line in reversed(stdout.strip().splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+        return {}
+
+    # ── Phase 2: Persistent session via JPype ───────────────────────────────────
+
+    def __init__(self):
+        self._jvm_started = False
+        self._model_util = None  # com.comsol.model.util.ModelUtil
+        self._model = None       # active COMSOL model
+        self._session_id: str | None = None
+        self._ui_mode: str | None = None
+        self._connected_at: float | None = None
+        self._run_count: int = 0
+        self._last_run: dict | None = None
+
+    def _start_jvm(self, comsol_root: str | None = None) -> None:
+        """Start JVM with COMSOL jars on the classpath."""
+        if self._jvm_started:
+            return
+
+        import jpype
+        import jpype.imports
+
+        root = comsol_root or os.environ.get("COMSOL_ROOT", _DEFAULT_COMSOL_ROOT)
+        jre_path = os.path.join(root, "java", "win64", "jre")
+        plugins_dir = os.path.join(root, "plugins")
+        lib_dir = os.path.join(root, "lib", "win64")
+
+        jars = glob.glob(os.path.join(plugins_dir, "*.jar"))
+        if not jars:
+            raise RuntimeError(f"No COMSOL jars found in {plugins_dir}")
+
+        classpath = os.pathsep.join(jars)
+        jvm_dll = os.path.join(jre_path, "bin", "server", "jvm.dll")
+
+        if not os.path.isfile(jvm_dll):
+            raise RuntimeError(f"JVM not found at {jvm_dll}")
+
+        jpype.startJVM(
+            jvm_dll,
+            f"-Djava.class.path={classpath}",
+            f"-Dcs.root={root}",
+            f"-Djava.library.path={lib_dir}",
+            convertStrings=True,
+        )
+        self._jvm_started = True
+
+    def launch(self, ui_mode: str = "gui", comsol_root: str | None = None) -> dict:
+        """Launch COMSOL via JPype. ui_mode='gui' shows the desktop."""
+        self._start_jvm(comsol_root)
+
+        from com.comsol.model.util import ModelUtil  # type: ignore
+
+        graphics = ui_mode in ("gui", "desktop")
+        ModelUtil.initStandalone(graphics)
+        self._model_util = ModelUtil
+
+        self._model = ModelUtil.create("Model1")
+        self._session_id = str(uuid.uuid4())
+        self._ui_mode = ui_mode
+        self._connected_at = time.time()
+        self._run_count = 0
+        self._last_run = None
+
+        return {
+            "ok": True,
+            "session_id": self._session_id,
+            "mode": "standalone",
+            "source": "launch",
+            "ui_mode": ui_mode,
+            "model_tag": str(self._model.tag()),
+        }
+
+    def run(self, code: str, label: str = "comsol-snippet") -> dict:
+        """Execute a Python snippet with `model` and `ModelUtil` in scope."""
+        if self._model is None:
+            raise RuntimeError("No active COMSOL session — call launch() first")
+
+        namespace: dict = {
+            "model": self._model,
+            "ModelUtil": self._model_util,
+            "_result": None,
+        }
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        error: str | None = None
+        ok = True
+        started_at = time.time()
+
+        try:
+            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+                exec(code, namespace)  # noqa: S102
+        except Exception:
+            ok = False
+            error = traceback.format_exc()
+
+        elapsed = round(time.time() - started_at, 4)
+        self._run_count += 1
+
+        # Update model reference in case snippet loaded a new model
+        if namespace.get("model") is not self._model and namespace.get("model") is not None:
+            self._model = namespace["model"]
+
+        record = {
+            "run_id": str(uuid.uuid4()),
+            "ok": ok,
+            "label": label,
+            "stdout": stdout_buf.getvalue(),
+            "stderr": stderr_buf.getvalue(),
+            "error": error,
+            "result": namespace.get("_result"),
+            "elapsed_s": elapsed,
+        }
+        self._last_run = record
+        return record
+
+    def disconnect(self) -> None:
+        """Shut down the COMSOL session and JVM."""
+        if self._model_util is not None:
+            try:
+                self._model_util.disconnect()
+            except Exception:
+                pass
+        self._model = None
+        self._model_util = None
+        self._session_id = None
+        self._connected_at = None
+        self._run_count = 0
+        self._last_run = None
