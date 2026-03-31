@@ -112,6 +112,12 @@ def _execute_snippet(code: str, label: str) -> dict:
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
+@app.get("/version")
+def version():
+    from ion import __version__
+    return {"version": __version__}
+
+
 @app.post("/connect")
 def connect(req: ConnectRequest):
     if _state.session is not None:
