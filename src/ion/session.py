@@ -105,3 +105,6 @@ class SessionClient:
 
     def status(self) -> dict:
         return self._request("get", "/ps", timeout=10)
+
+    def screenshot(self) -> dict:
+        return self._request("get", "/screenshot", timeout=30)

@@ -262,6 +262,32 @@ def ps():
     }
 
 
+@app.get("/screenshot")
+def screenshot():
+    """Capture the server's desktop and return as PNG."""
+    import base64
+
+    try:
+        from PIL import ImageGrab
+    except ImportError:
+        raise HTTPException(500, "Pillow is not installed on the server")
+
+    img = ImageGrab.grab()
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+
+    return {
+        "ok": True,
+        "data": {
+            "format": "png",
+            "width": img.width,
+            "height": img.height,
+            "base64": b64,
+        },
+    }
+
+
 @app.post("/disconnect")
 def disconnect():
     if _state.session is None:

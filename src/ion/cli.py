@@ -273,6 +273,31 @@ def disconnect(ctx):
             sys.exit(1)
 
 
+# ── screenshot ───────────────────────────────────────────────────────────────
+
+@main.command()
+@click.option("-o", "--output", default="screenshot.png", help="Output file path.")
+@click.pass_context
+def screenshot(ctx, output):
+    """Capture the server desktop and save as PNG."""
+    import base64
+    from pathlib import Path
+
+    from ion.session import SessionClient
+    client = SessionClient(host=ctx.obj["host"], port=ctx.obj["port"])
+    result = client.screenshot()
+
+    if not result.get("ok"):
+        click.echo(f"[ion] error: {result.get('error')}", err=True)
+        sys.exit(1)
+
+    png_bytes = base64.b64decode(result["data"]["base64"])
+    out_path = Path(output)
+    out_path.write_bytes(png_bytes)
+    w, h = result["data"]["width"], result["data"]["height"]
+    click.echo(f"[ion] screenshot saved: {out_path} ({w}x{h})")
+
+
 # ── logs (run history) ───────────────────────────────────────────────────────
 
 @main.command()
