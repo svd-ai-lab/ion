@@ -134,7 +134,7 @@ class MatlabDriver:
                 "Run: pip install matlabengine"
             ) from exc
 
-        self._desktop = ui_mode == "desktop"
+        self._desktop = ui_mode in ("desktop", "gui")
         if self._desktop:
             self._engine = matlab.engine.start_matlab("-desktop")
         else:

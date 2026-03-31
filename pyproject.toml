@@ -11,10 +11,10 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "ansys-fluent-core>=0.20",
-    "matlabengine",
 ]
 
 [project.optional-dependencies]
+matlab = ["matlabengine"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.scripts]
