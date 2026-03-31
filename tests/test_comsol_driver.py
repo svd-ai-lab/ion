@@ -113,6 +113,53 @@ class TestRunFile:
         assert captured["script"] == script
 
 
+class TestLaunchStandalone:
+    """Verify standalone mode sets correct state without spawning subprocesses."""
+
+    def test_standalone_returns_correct_mode(self, monkeypatch):
+        driver = ComsolDriver()
+
+        # Mock _start_jvm to no-op
+        monkeypatch.setattr(driver, "_start_jvm", lambda root: None)
+
+        # Mock the COMSOL Java import
+        class FakeModelUtil:
+            @staticmethod
+            def initStandalone(gui):
+                pass
+
+            @staticmethod
+            def create(tag):
+                class FakeModel:
+                    def tag(self):
+                        return tag
+                return FakeModel()
+
+        import sys
+        fake_module = type(sys)("com.comsol.model.util")
+        fake_module.ModelUtil = FakeModelUtil
+        monkeypatch.setitem(sys.modules, "com.comsol.model.util", fake_module)
+
+        result = driver.launch(ui_mode="standalone")
+        assert result["ok"] is True
+        assert result["mode"] == "standalone"
+        assert result["ui_mode"] == "standalone"
+        assert driver._standalone is True
+        assert driver._server_proc is None
+        assert driver._client_proc is None
+
+    def test_standalone_disconnect_skips_server_disconnect(self, monkeypatch):
+        driver = ComsolDriver()
+        driver._standalone = True
+        driver._model_util = object()  # non-None sentinel
+        driver._model = object()
+
+        # disconnect() should NOT call model_util.disconnect()
+        driver.disconnect()
+        assert driver._standalone is False
+        assert driver._model is None
+
+
 def _make_import_blocker(blocked: str):
     """Return an __import__ replacement that blocks a specific module."""
     import builtins

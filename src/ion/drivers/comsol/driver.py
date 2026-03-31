@@ -165,6 +165,7 @@ class ComsolDriver:
         self._server_proc = None  # comsolmphserver subprocess
         self._client_proc = None  # comsolmphclient subprocess (GUI)
         self._port: int = 2036
+        self._standalone = False
 
     def _start_jvm(self, comsol_root: str | None = None) -> None:
         """Start JVM with COMSOL jars on the classpath."""
@@ -222,6 +223,30 @@ class ComsolDriver:
         import subprocess
 
         root = comsol_root or os.environ.get("COMSOL_ROOT", _DEFAULT_COMSOL_ROOT)
+
+        # Standalone mode: embed COMSOL engine + GUI in this process
+        if ui_mode == "standalone":
+            self._start_jvm(root)
+            from com.comsol.model.util import ModelUtil  # type: ignore
+
+            ModelUtil.initStandalone(True)
+            self._model_util = ModelUtil
+            self._model = ModelUtil.create("Model1")
+            self._standalone = True
+            self._session_id = str(uuid.uuid4())
+            self._ui_mode = ui_mode
+            self._connected_at = time.time()
+            self._run_count = 0
+            self._last_run = None
+            return {
+                "ok": True,
+                "session_id": self._session_id,
+                "mode": "standalone",
+                "source": "launch",
+                "ui_mode": ui_mode,
+                "model_tag": str(self._model.tag()),
+            }
+
         user = user or os.environ.get("COMSOL_USER", "")
         password = password or os.environ.get("COMSOL_PASSWORD", "")
         bin_dir = os.path.join(root, "bin", "win64")
@@ -338,7 +363,7 @@ class ComsolDriver:
 
     def disconnect(self) -> None:
         """Disconnect from COMSOL server and kill subprocesses."""
-        if self._model_util is not None:
+        if self._model_util is not None and not self._standalone:
             try:
                 self._model_util.disconnect()
             except Exception:
@@ -361,3 +386,4 @@ class ComsolDriver:
         self._connected_at = None
         self._run_count = 0
         self._last_run = None
+        self._standalone = False

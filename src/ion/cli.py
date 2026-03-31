@@ -150,7 +150,7 @@ def run(ctx, script, solver):
 @main.command()
 @click.option("--solver", required=True, help="Solver name (e.g. pyfluent).")
 @click.option("--mode", default="meshing", type=click.Choice(["meshing", "solver"]))
-@click.option("--ui-mode", default="no_gui", type=click.Choice(["no_gui", "gui"]))
+@click.option("--ui-mode", default="no_gui", type=click.Choice(["no_gui", "gui", "standalone"]))
 @click.option("--processors", default=1, type=int)
 @click.pass_context
 def connect(ctx, solver, mode, ui_mode, processors):
