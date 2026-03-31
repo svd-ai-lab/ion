@@ -162,6 +162,9 @@ class ComsolDriver:
         self._connected_at: float | None = None
         self._run_count: int = 0
         self._last_run: dict | None = None
+        self._server_proc = None  # comsolmphserver subprocess
+        self._client_proc = None  # comsolmphclient subprocess (GUI)
+        self._port: int = 2036
 
     def _start_jvm(self, comsol_root: str | None = None) -> None:
         """Start JVM with COMSOL jars on the classpath."""
@@ -195,17 +198,68 @@ class ComsolDriver:
         )
         self._jvm_started = True
 
-    def launch(self, ui_mode: str = "gui", comsol_root: str | None = None) -> dict:
-        """Launch COMSOL via JPype. ui_mode='gui' shows the desktop."""
-        self._start_jvm(comsol_root)
+    def _wait_for_port(self, port: int, timeout: float = 60) -> bool:
+        """Wait until a TCP port is accepting connections."""
+        import socket
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    return True
+            except OSError:
+                time.sleep(2)
+        return False
 
+    def launch(self, ui_mode: str = "gui", comsol_root: str | None = None) -> dict:
+        """Launch COMSOL server + optional GUI client, connect via JPype.
+
+        1. Starts comsolmphserver.exe (headless compute backend)
+        2. Waits for it to listen on the port
+        3. Connects via ModelUtil.connect() from JPype
+        4. If ui_mode='gui', also launches comsolmphclient.exe (visual GUI)
+        """
+        import subprocess
+
+        root = comsol_root or os.environ.get("COMSOL_ROOT", _DEFAULT_COMSOL_ROOT)
+        bin_dir = os.path.join(root, "bin", "win64")
+        server_exe = os.path.join(bin_dir, "comsolmphserver.exe")
+        client_exe = os.path.join(bin_dir, "comsolmphclient.exe")
+
+        if not os.path.isfile(server_exe):
+            raise RuntimeError(f"comsolmphserver not found at {server_exe}")
+
+        # Step 1: Launch COMSOL server
+        self._server_proc = subprocess.Popen(
+            [server_exe, "-port", str(self._port), "-silent"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Step 2: Wait for server to start listening
+        if not self._wait_for_port(self._port, timeout=90):
+            self._server_proc.kill()
+            self._server_proc = None
+            raise RuntimeError(
+                f"comsolmphserver did not start listening on port {self._port} "
+                "within 90s — check COMSOL license"
+            )
+
+        # Step 3: Connect via JPype
+        self._start_jvm(root)
         from com.comsol.model.util import ModelUtil  # type: ignore
 
-        graphics = ui_mode in ("gui", "desktop")
-        ModelUtil.initStandalone(graphics)
+        ModelUtil.connect("localhost", self._port)
         self._model_util = ModelUtil
-
         self._model = ModelUtil.create("Model1")
+
+        # Step 4: Launch GUI client if requested
+        if ui_mode in ("gui", "desktop") and os.path.isfile(client_exe):
+            self._client_proc = subprocess.Popen(
+                [client_exe, "-port", str(self._port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
         self._session_id = str(uuid.uuid4())
         self._ui_mode = ui_mode
         self._connected_at = time.time()
@@ -215,9 +269,10 @@ class ComsolDriver:
         return {
             "ok": True,
             "session_id": self._session_id,
-            "mode": "standalone",
+            "mode": "client-server",
             "source": "launch",
             "ui_mode": ui_mode,
+            "port": self._port,
             "model_tag": str(self._model.tag()),
         }
 
@@ -266,12 +321,24 @@ class ComsolDriver:
         return record
 
     def disconnect(self) -> None:
-        """Shut down the COMSOL session and JVM."""
+        """Disconnect from COMSOL server and kill subprocesses."""
         if self._model_util is not None:
             try:
                 self._model_util.disconnect()
             except Exception:
                 pass
+        if self._client_proc is not None:
+            try:
+                self._client_proc.kill()
+            except Exception:
+                pass
+            self._client_proc = None
+        if self._server_proc is not None:
+            try:
+                self._server_proc.kill()
+            except Exception:
+                pass
+            self._server_proc = None
         self._model = None
         self._model_util = None
         self._session_id = None
