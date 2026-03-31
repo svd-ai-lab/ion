@@ -4,14 +4,14 @@ version = "0.2.0"
 description = "The physics simulation runtime for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "click>=8.0",
     "httpx>=0.28",
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "ansys-fluent-core>=0.20",
-    "matlabengine; python_version<'3.13'",
+    "matlabengine",
 ]
 
 [project.optional-dependencies]
