@@ -232,12 +232,14 @@ class ComsolDriver:
             raise RuntimeError(f"comsolmphserver not found at {server_exe}")
 
         # Step 1: Launch COMSOL server
+        # -multi on: keep models in memory, allow multiple clients
         # -login auto: use stored credentials, don't prompt
         # -silent: don't listen to stdin
-        # -graphics: enable graphics on server (needed for plot export)
+        # -graphics: enable graphics (needed for plot/image export)
+        # -3drend sw: software rendering (no GPU needed)
         self._server_proc = subprocess.Popen(
-            [server_exe, "-port", str(self._port), "-login", "auto",
-             "-silent", "-graphics"],
+            [server_exe, "-port", str(self._port), "-multi", "on",
+             "-login", "auto", "-silent", "-graphics", "-3drend", "sw"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -259,6 +261,10 @@ class ComsolDriver:
             ModelUtil.connect("localhost", self._port, user, password)
         else:
             ModelUtil.connect("localhost", self._port)
+
+        # Handle concurrent access: wait up to 30s if server is busy
+        from com.comsol.model.util import ServerBusyHandler  # type: ignore
+        ModelUtil.setServerBusyHandler(ServerBusyHandler(30000))
         self._model_util = ModelUtil
         self._model = ModelUtil.create("Model1")
 
