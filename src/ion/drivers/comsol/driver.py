@@ -210,7 +210,8 @@ class ComsolDriver:
                 time.sleep(2)
         return False
 
-    def launch(self, ui_mode: str = "gui", comsol_root: str | None = None) -> dict:
+    def launch(self, ui_mode: str = "gui", comsol_root: str | None = None,
+               user: str | None = None, password: str | None = None) -> dict:
         """Launch COMSOL server + optional GUI client, connect via JPype.
 
         1. Starts comsolmphserver.exe (headless compute backend)
@@ -221,6 +222,8 @@ class ComsolDriver:
         import subprocess
 
         root = comsol_root or os.environ.get("COMSOL_ROOT", _DEFAULT_COMSOL_ROOT)
+        user = user or os.environ.get("COMSOL_USER", "")
+        password = password or os.environ.get("COMSOL_PASSWORD", "")
         bin_dir = os.path.join(root, "bin", "win64")
         server_exe = os.path.join(bin_dir, "comsolmphserver.exe")
         client_exe = os.path.join(bin_dir, "comsolmphclient.exe")
@@ -229,8 +232,12 @@ class ComsolDriver:
             raise RuntimeError(f"comsolmphserver not found at {server_exe}")
 
         # Step 1: Launch COMSOL server
+        # -login auto: use stored credentials, don't prompt
+        # -silent: don't listen to stdin
+        # -graphics: enable graphics on server (needed for plot export)
         self._server_proc = subprocess.Popen(
-            [server_exe, "-port", str(self._port), "-silent"],
+            [server_exe, "-port", str(self._port), "-login", "auto",
+             "-silent", "-graphics"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -248,7 +255,10 @@ class ComsolDriver:
         self._start_jvm(root)
         from com.comsol.model.util import ModelUtil  # type: ignore
 
-        ModelUtil.connect("localhost", self._port)
+        if user and password:
+            ModelUtil.connect("localhost", self._port, user, password)
+        else:
+            ModelUtil.connect("localhost", self._port)
         self._model_util = ModelUtil
         self._model = ModelUtil.create("Model1")
 
