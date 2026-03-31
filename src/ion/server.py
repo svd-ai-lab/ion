@@ -9,6 +9,7 @@ Like `ollama serve`: start once, then use `ion connect/exec/inspect/disconnect`.
 Endpoints:
     POST /connect     {solver, mode, ui_mode, processors}
     POST /exec        {code, label}
+    POST /run         {script, solver}  — one-shot, no session needed
     GET  /inspect/<name>
     GET  /ps
     POST /disconnect
@@ -41,6 +42,11 @@ class ConnectRequest(BaseModel):
 class ExecRequest(BaseModel):
     code: str
     label: str = "snippet"
+
+
+class RunRequest(BaseModel):
+    script: str
+    solver: str
 
 
 # ── Session state ────────────────────────────────────────────────────────────
@@ -150,6 +156,34 @@ def exec_snippet(req: ExecRequest):
         raise HTTPException(400, "no active session — POST /connect first")
     record = _execute_snippet(req.code, req.label)
     return {"ok": record["ok"], "data": record}
+
+
+@app.post("/run")
+def run_script(req: RunRequest):
+    """One-shot script execution — no session required."""
+    from pathlib import Path
+
+    from ion.drivers import get_driver
+    from ion.runner import execute_script
+
+    script_path = Path(req.script)
+    if not script_path.is_file():
+        raise HTTPException(400, f"script not found: {req.script}")
+
+    driver = get_driver(req.solver)
+    if driver is None:
+        raise HTTPException(400, f"unknown solver: {req.solver}")
+
+    result = execute_script(script_path, solver=req.solver, driver=driver)
+    parsed = driver.parse_output(result.stdout)
+
+    return {
+        "ok": result.exit_code == 0,
+        "data": {
+            **result.to_dict(),
+            "parsed": parsed,
+        },
+    }
 
 
 @app.get("/inspect/{name}")
