@@ -5,11 +5,13 @@ from ion.driver import DriverProtocol
 from ion.drivers.pybamm import PyBaMMLDriver
 from ion.drivers.fluent import PyFluentDriver
 from ion.drivers.matlab import MatlabDriver
+from ion.drivers.comsol import ComsolDriver
 
 DRIVERS: list[DriverProtocol] = [
     PyBaMMLDriver(),
     PyFluentDriver(),
     MatlabDriver(),
+    ComsolDriver(),
 ]
 
 
