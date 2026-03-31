@@ -9,6 +9,7 @@ Like `ollama serve`: start once, then use `ion connect/exec/inspect/disconnect`.
 Endpoints:
     POST /connect     {solver, mode, ui_mode, processors}
     POST /exec        {code, label}
+    POST /run         {script, solver}  — one-shot, no session needed
     GET  /inspect/<name>
     GET  /ps
     POST /disconnect
@@ -43,16 +44,23 @@ class ExecRequest(BaseModel):
     label: str = "snippet"
 
 
+class RunRequest(BaseModel):
+    script: str
+    solver: str
+
+
 # ── Session state ────────────────────────────────────────────────────────────
 
 @dataclass
 class SessionState:
     session_id: str | None = None
+    solver: str | None = None
     mode: str | None = None
     ui_mode: str | None = None
     connected_at: float | None = None
     run_count: int = 0
     session: Any = None
+    driver: Any = None
     runs: list[dict] = field(default_factory=list)
 
 
@@ -106,36 +114,54 @@ def _execute_snippet(code: str, label: str) -> dict:
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
+@app.get("/version")
+def version():
+    from ion import __version__
+    return {"version": __version__}
+
+
 @app.post("/connect")
 def connect(req: ConnectRequest):
+    from ion.drivers import get_driver
+
     if _state.session is not None:
         raise HTTPException(400, "session already active — POST /disconnect first")
 
-    if req.solver != "fluent":
-        raise HTTPException(400, f"unsupported solver: {req.solver}")
+    driver = get_driver(req.solver)
+    if driver is None:
+        raise HTTPException(400, f"unknown solver: {req.solver}")
 
     try:
-        import ansys.fluent.core as pyfluent
-        session = pyfluent.launch_fluent(
-            mode=req.mode,
-            ui_mode=req.ui_mode,
-            processor_count=req.processors,
-        )
+        if req.solver == "matlab":
+            info = driver.launch(ui_mode=req.ui_mode)
+            session = driver  # MATLAB driver holds its own engine
+        else:
+            # Fluent path
+            import ansys.fluent.core as pyfluent
+            session = pyfluent.launch_fluent(
+                mode=req.mode,
+                ui_mode=req.ui_mode,
+                processor_count=req.processors,
+            )
+            info = {"ok": True, "session_id": str(uuid.uuid4())}
     except Exception as e:
-        raise HTTPException(500, f"failed to launch Fluent: {e}")
+        raise HTTPException(500, f"failed to launch {req.solver}: {e}")
 
-    _state.session_id = str(uuid.uuid4())
+    _state.session_id = info.get("session_id", str(uuid.uuid4()))
+    _state.solver = req.solver
     _state.mode = req.mode
     _state.ui_mode = req.ui_mode
     _state.connected_at = time.time()
     _state.run_count = 0
     _state.session = session
+    _state.driver = driver
     _state.runs = []
 
     return {
         "ok": True,
         "data": {
             "session_id": _state.session_id,
+            "solver": req.solver,
             "mode": _state.mode,
             "ui_mode": _state.ui_mode,
             "connected_at": _state.connected_at,
@@ -148,8 +174,47 @@ def connect(req: ConnectRequest):
 def exec_snippet(req: ExecRequest):
     if _state.session is None:
         raise HTTPException(400, "no active session — POST /connect first")
+
+    if _state.solver == "matlab":
+        result = _state.driver.run(req.code, req.label)
+        result["run_id"] = str(uuid.uuid4())
+        result["session_id"] = _state.session_id
+        result["elapsed_s"] = 0  # TODO: time it
+        result["started_at"] = time.time()
+        _state.runs.append(result)
+        _state.run_count += 1
+        return {"ok": result["ok"], "data": result}
+
     record = _execute_snippet(req.code, req.label)
     return {"ok": record["ok"], "data": record}
+
+
+@app.post("/run")
+def run_script(req: RunRequest):
+    """One-shot script execution — no session required."""
+    from pathlib import Path
+
+    from ion.drivers import get_driver
+    from ion.runner import execute_script
+
+    script_path = Path(req.script)
+    if not script_path.is_file():
+        raise HTTPException(400, f"script not found: {req.script}")
+
+    driver = get_driver(req.solver)
+    if driver is None:
+        raise HTTPException(400, f"unknown solver: {req.solver}")
+
+    result = execute_script(script_path, solver=req.solver, driver=driver)
+    parsed = driver.parse_output(result.stdout)
+
+    return {
+        "ok": result.exit_code == 0,
+        "data": {
+            **result.to_dict(),
+            "parsed": parsed,
+        },
+    }
 
 
 @app.get("/inspect/{name}")
@@ -191,6 +256,7 @@ def ps():
     return {
         "connected": True,
         "session_id": _state.session_id,
+        "solver": _state.solver,
         "mode": _state.mode,
         "ui_mode": _state.ui_mode,
         "connected_at": _state.connected_at,
@@ -205,16 +271,21 @@ def disconnect():
 
     sid = _state.session_id
     try:
-        _state.session.exit()
+        if _state.solver == "matlab" and _state.driver:
+            _state.driver.disconnect()
+        else:
+            _state.session.exit()
     except Exception:
         pass
 
     _state.session = None
     _state.session_id = None
+    _state.solver = None
     _state.mode = None
     _state.ui_mode = None
     _state.connected_at = None
     _state.run_count = 0
+    _state.driver = None
     _state.runs = []
 
     return {"ok": True, "data": {"session_id": sid, "disconnected": True}}
