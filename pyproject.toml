@@ -11,7 +11,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "ansys-fluent-core>=0.20",
-    "matlabengine",
+    "matlabengine; python_version<'3.13'",
 ]
 
 [project.optional-dependencies]
