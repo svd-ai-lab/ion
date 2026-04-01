@@ -94,6 +94,7 @@ Scripts are solver-specific automation. ion is the **control plane** for agentic
 | MATLAB | Working | matlab.engine | One-shot, persistent |
 | PyBaMM | Basic | Direct Python | One-shot |
 | OpenFOAM | Planned | — | — |
+| [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | Planned | — | — |
 
 ## For agent builders
 

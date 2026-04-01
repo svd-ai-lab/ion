@@ -94,6 +94,7 @@ Skripte sind solver-spezifische Automatisierung. ion ist die **Steuerungsebene**
 | MATLAB | Funktionsfähig | matlab.engine | Einmalig, persistierend |
 | PyBaMM | Grundlegend | Direktes Python | Einmalig |
 | OpenFOAM | Geplant | — | — |
+| [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | Geplant | — | — |
 
 ## Für Agenten-Entwickler
 

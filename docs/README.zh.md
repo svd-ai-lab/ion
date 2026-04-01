@@ -94,6 +94,7 @@ ion --host 192.168.1.10 disconnect
 | MATLAB | 可用 | matlab.engine | 一次性、持久 |
 | PyBaMM | 基础支持 | Python 直接调用 | 一次性 |
 | OpenFOAM | 计划中 | — | — |
+| [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | 计划中 | — | — |
 
 ## 面向 Agent 开发者
 
