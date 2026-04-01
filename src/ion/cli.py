@@ -20,6 +20,35 @@ def _get_store() -> RunStore:
     return RunStore(Path(root))
 
 
+def _resolve_host(host: str) -> str:
+    """Resolve SSH aliases (e.g. 'win1') to their HostName via ssh -G."""
+    import socket
+    import subprocess
+
+    # If it already resolves as a hostname/IP, use it directly
+    try:
+        socket.getaddrinfo(host, None)
+        return host
+    except socket.gaierror:
+        pass
+
+    # Try resolving via SSH config
+    try:
+        result = subprocess.run(
+            ["ssh", "-G", host],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("hostname "):
+                resolved = line.split(None, 1)[1]
+                if resolved != host:
+                    return resolved
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return host
+
+
 # ── Top-level group ──────────────────────────────────────────────────────────
 
 @click.group()
@@ -34,7 +63,7 @@ def main(ctx, output_json, host, port):
     """ion — unified CLI for LLM agents to control CAD/CAE simulation software."""
     ctx.ensure_object(dict)
     ctx.obj["json"] = output_json
-    ctx.obj["host"] = host or "localhost"
+    ctx.obj["host"] = _resolve_host(host) if host else "localhost"
     ctx.obj["port"] = port
 
 
