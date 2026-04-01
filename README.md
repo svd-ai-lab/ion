@@ -53,6 +53,8 @@ ion --host 192.168.1.10 inspect session.summary              # check convergence
 ion --host 192.168.1.10 disconnect
 ```
 
+> **Tip:** Use [Tailscale](https://tailscale.com) to connect to your workstation from anywhere — no port forwarding, no VPN setup. `ion serve` on your lab machine, `ion --host <tailscale-ip>` from your laptop.
+
 ## Commands
 
 | Command | What it does | Analogy |
