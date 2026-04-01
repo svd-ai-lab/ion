@@ -7,6 +7,14 @@ from logging.handlers import RotatingFileHandler
 from ion.home import ION_HOME
 
 
+class _FlushingRotatingHandler(RotatingFileHandler):
+    """RotatingFileHandler that flushes after every emit."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self.flush()
+
+
 def setup_server_logging() -> logging.Logger:
     """Configure and return the ``ion.server`` logger.
 
@@ -18,7 +26,7 @@ def setup_server_logging() -> logging.Logger:
     logger.setLevel(logging.DEBUG)
 
     if not logger.handlers:
-        handler = RotatingFileHandler(
+        handler = _FlushingRotatingHandler(
             ION_HOME / "server.log",
             maxBytes=5 * 1024 * 1024,
             backupCount=3,
