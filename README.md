@@ -1,6 +1,6 @@
 # ion
 
-> The simulation runtime for AI agents.
+> The physics simulation runtime for AI agents.
 
 A harness for launching, controlling, and observing engineering simulations — across Fluent, COMSOL, MATLAB, and PyBaMM — from any LLM agent or CLI.
 
@@ -97,6 +97,8 @@ Scripts are solver-specific automation. ion is the **control plane** for agentic
 | PyBaMM | Basic | Direct Python | One-shot |
 | OpenFOAM | Planned | — | — |
 | [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | Planned | — | — |
+| SOLIDWORKS | Planned | COM API (win32com) | — |
+| SpaceClaim | Planned | — | — |
 
 ## For agent builders
 

@@ -1,6 +1,6 @@
 # ion
 
-> AIエージェントのためのシミュレーションランタイム。
+> AIエージェントのための物理シミュレーションランタイム。
 
 Fluent、COMSOL、MATLAB、PyBaMM全体にわたるエンジニアリングシミュレーションの起動・制御・観測のためのハーネス — あらゆるLLMエージェントやCLIから利用可能。
 
@@ -95,6 +95,8 @@ ion --host 192.168.1.10 disconnect
 | PyBaMM | 基本対応 | Python直接実行 | ワンショット |
 | OpenFOAM | 予定 | — | — |
 | [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | 予定 | — | — |
+| SOLIDWORKS | 予定 | COM API (win32com) | — |
+| SpaceClaim | 予定 | — | — |
 
 ## エージェント開発者向け
 

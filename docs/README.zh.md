@@ -1,6 +1,6 @@
 # ion
 
-> AI Agent 的仿真运行时。
+> AI Agent 的物理仿真运行时。
 
 一套用于启动、控制和观测工程仿真的 harness —— 支持 Fluent、COMSOL、MATLAB 和 PyBaMM，适配任何 LLM Agent 或命令行。
 
@@ -95,6 +95,8 @@ ion --host 192.168.1.10 disconnect
 | PyBaMM | 基础支持 | Python 直接调用 | 一次性 |
 | OpenFOAM | 计划中 | — | — |
 | [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | 计划中 | — | — |
+| SOLIDWORKS | 计划中 | COM API (win32com) | — |
+| SpaceClaim | 计划中 | — | — |
 
 ## 面向 Agent 开发者
 

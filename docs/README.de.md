@@ -1,6 +1,6 @@
 # ion
 
-> Die Simulations-Runtime für KI-Agenten.
+> Die Physiksimulations-Runtime für KI-Agenten.
 
 Ein Harness zum Starten, Steuern und Beobachten von Ingenieur-Simulationen — über Fluent, COMSOL, MATLAB und PyBaMM — von jedem LLM-Agenten oder CLI aus.
 
@@ -95,6 +95,8 @@ Skripte sind solver-spezifische Automatisierung. ion ist die **Steuerungsebene**
 | PyBaMM | Grundlegend | Direktes Python | Einmalig |
 | OpenFOAM | Geplant | — | — |
 | [FloTHERM](https://www.siemens.com/en-us/products/simcenter/fluids-thermal-simulation/flotherm/) | Geplant | — | — |
+| SOLIDWORKS | Geplant | COM API (win32com) | — |
+| SpaceClaim | Geplant | — | — |
 
 ## Für Agenten-Entwickler
 
