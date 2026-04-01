@@ -27,7 +27,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from ion.logging_config import setup_server_logging
+from ion.session_store import SessionStore
+
 app = FastAPI(title="ion", version="0.1.0")
+
+_log = setup_server_logging()
+_session_store = SessionStore()
 
 
 # ── Request models ───────────────────────────────────────────────────────────
@@ -117,6 +123,7 @@ def _execute_snippet(code: str, label: str) -> dict:
 @app.get("/version")
 def version():
     from ion import __version__
+    _log.info("GET /version")
     return {"version": __version__}
 
 
@@ -124,11 +131,15 @@ def version():
 def connect(req: ConnectRequest):
     from ion.drivers import get_driver
 
+    _log.info("POST /connect solver=%s mode=%s ui_mode=%s", req.solver, req.mode, req.ui_mode)
+
     if _state.session is not None:
+        _log.warning("POST /connect rejected: session already active")
         raise HTTPException(400, "session already active — POST /disconnect first")
 
     driver = get_driver(req.solver)
     if driver is None:
+        _log.error("POST /connect unknown solver: %s", req.solver)
         raise HTTPException(400, f"unknown solver: {req.solver}")
 
     try:
@@ -145,6 +156,7 @@ def connect(req: ConnectRequest):
             )
             info = {"ok": True, "session_id": str(uuid.uuid4())}
     except Exception as e:
+        _log.error("POST /connect failed to launch %s: %s", req.solver, e)
         raise HTTPException(500, f"failed to launch {req.solver}: {e}")
 
     _state.session_id = info.get("session_id", str(uuid.uuid4()))
@@ -156,6 +168,14 @@ def connect(req: ConnectRequest):
     _state.session = session
     _state.driver = driver
     _state.runs = []
+
+    _log.info("POST /connect ok session_id=%s", _state.session_id)
+    _session_store.create(_state.session_id, {
+        "solver": req.solver,
+        "mode": _state.mode,
+        "ui_mode": _state.ui_mode,
+        "connected_at": _state.connected_at,
+    })
 
     return {
         "ok": True,
@@ -173,6 +193,7 @@ def connect(req: ConnectRequest):
 @app.post("/exec")
 def exec_snippet(req: ExecRequest):
     if _state.session is None:
+        _log.warning("POST /exec rejected: no active session")
         raise HTTPException(400, "no active session — POST /connect first")
 
     if _state.solver in ("matlab", "comsol"):
@@ -181,9 +202,13 @@ def exec_snippet(req: ExecRequest):
         result["started_at"] = time.time()
         _state.runs.append(result)
         _state.run_count += 1
+        _log.info("POST /exec label=%s ok=%s elapsed=%.3fs", req.label, result["ok"], result.get("elapsed_s", 0))
+        _session_store.append_run(_state.session_id, result)
         return {"ok": result["ok"], "data": result}
 
     record = _execute_snippet(req.code, req.label)
+    _log.info("POST /exec label=%s ok=%s elapsed=%.3fs", req.label, record["ok"], record["elapsed_s"])
+    _session_store.append_run(_state.session_id, record)
     return {"ok": record["ok"], "data": record}
 
 
@@ -195,17 +220,22 @@ def run_script(req: RunRequest):
     from ion.drivers import get_driver
     from ion.runner import execute_script
 
+    _log.info("POST /run script=%s solver=%s", req.script, req.solver)
+
     script_path = Path(req.script)
     if not script_path.is_file():
+        _log.error("POST /run script not found: %s", req.script)
         raise HTTPException(400, f"script not found: {req.script}")
 
     driver = get_driver(req.solver)
     if driver is None:
+        _log.error("POST /run unknown solver: %s", req.solver)
         raise HTTPException(400, f"unknown solver: {req.solver}")
 
     result = execute_script(script_path, solver=req.solver, driver=driver)
     parsed = driver.parse_output(result.stdout)
 
+    _log.info("POST /run ok=%s elapsed=%.3fs", result.exit_code == 0, result.elapsed_s)
     return {
         "ok": result.exit_code == 0,
         "data": {
@@ -217,6 +247,7 @@ def run_script(req: RunRequest):
 
 @app.get("/inspect/{name}")
 def inspect(name: str):
+    _log.info("GET /inspect/%s", name)
     if _state.session is None:
         raise HTTPException(400, "no active session")
 
@@ -249,6 +280,7 @@ def inspect(name: str):
 
 @app.get("/ps")
 def ps():
+    _log.info("GET /ps")
     if _state.session is None:
         return {"connected": False}
     return {
@@ -267,6 +299,7 @@ def screenshot():
     """Capture the server's desktop and return as PNG."""
     import base64
 
+    _log.info("GET /screenshot")
     try:
         from PIL import ImageGrab
     except ImportError:
@@ -291,16 +324,20 @@ def screenshot():
 @app.post("/disconnect")
 def disconnect():
     if _state.session is None:
+        _log.warning("POST /disconnect rejected: no active session")
         raise HTTPException(400, "no active session")
 
     sid = _state.session_id
+    _log.info("POST /disconnect session_id=%s", sid)
+    _session_store.close(sid, time.time())
+
     try:
         if _state.solver in ("matlab", "comsol") and _state.driver:
             _state.driver.disconnect()
         else:
             _state.session.exit()
     except Exception:
-        pass
+        _log.warning("POST /disconnect session cleanup error", exc_info=True)
 
     _state.session = None
     _state.session_id = None
