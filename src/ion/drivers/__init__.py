@@ -6,12 +6,16 @@ from ion.drivers.pybamm import PyBaMMLDriver
 from ion.drivers.fluent import PyFluentDriver
 from ion.drivers.matlab import MatlabDriver
 from ion.drivers.comsol import ComsolDriver
+from ion.drivers.flotherm import FlothermDriver
+from ion.drivers.ansa import AnsaDriver
 
 DRIVERS: list[DriverProtocol] = [
     PyBaMMLDriver(),
     PyFluentDriver(),
     MatlabDriver(),
     ComsolDriver(),
+    FlothermDriver(),
+    AnsaDriver(),
 ]
 
 
