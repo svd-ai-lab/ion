@@ -432,13 +432,17 @@ class AnsaDriver:
             self._runtime = AnsaRuntime()
         return self._runtime
 
-    def launch(self, port: int | None = None) -> dict:
+    def launch(self, port: int | None = None, ui_mode: str = "gui") -> dict:
         """Start ANSA in listener mode and establish IAP connection.
+
+        Args:
+            port: TCP port for IAP. Auto-assigned if None.
+            ui_mode: "no_gui" (headless) or "gui" (visible ANSA window).
 
         Returns a session info dict with session_id, port, etc.
         """
         rt = self._ensure_runtime()
-        info = rt.launch(port=port)
+        info = rt.launch(port=port, ui_mode=ui_mode)
         return info.to_dict()
 
     def run(self, code: str, label: str = "ansa-snippet") -> dict:

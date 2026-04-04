@@ -90,8 +90,14 @@ class AnsaRuntime:
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
-    def launch(self, port: int | None = None) -> SessionInfo:
+    def launch(self, port: int | None = None, ui_mode: str = "gui") -> SessionInfo:
         """Start ANSA in listener mode and establish IAP connection.
+
+        Args:
+            port: TCP port for IAP. Auto-assigned if None.
+            ui_mode: "no_gui" (headless) or "gui" (visible ANSA window).
+                     With "gui", every exec_snippet() call is visible in
+                     the ANSA GUI in real time — like pyfluent ui_mode="gui".
 
         Returns a SessionInfo describing the live session.
         """
@@ -138,7 +144,9 @@ class AnsaRuntime:
         # Launch ANSA in listener mode
         # NOTE: stdout/stderr must NOT be PIPE — ANSA blocks/crashes if
         # its output pipe fills up. Use DEVNULL for headless operation.
-        cmd = [exe_path, "-nolauncher", "-listenport", str(port), "-foregr", "-nogui"]
+        cmd = [exe_path, "-nolauncher", "-listenport", str(port), "-foregr"]
+        if ui_mode != "gui":
+            cmd.append("-nogui")
         self._process = subprocess.Popen(
             cmd,
             env=env,
